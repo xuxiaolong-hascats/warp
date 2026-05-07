@@ -364,6 +364,7 @@ impl CodeView {
     fn construct_shared_buffer_editor_from_path(
         &mut self,
         path: &Path,
+        show_footer: bool,
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<LocalCodeEditorView> {
         ctx.add_typed_action_view(|ctx| {
@@ -401,7 +402,9 @@ impl CodeView {
                 ctx,
             );
 
-            editor.add_footer(ctx);
+            if show_footer {
+                editor.add_footer(ctx);
+            }
             editor
         })
     }
@@ -451,7 +454,7 @@ impl CodeView {
         // Opt out of shared buffer if we are creating a new file.
         // TODO(kevin): Once the file is saved, we should convert that into a shared buffer.
         let code_editor = if let Some(path) = path.as_ref() {
-            self.construct_shared_buffer_editor_from_path(path, ctx)
+            self.construct_shared_buffer_editor_from_path(path, !preview, ctx)
         } else {
             self.construct_new_file_editor(ctx)
         };

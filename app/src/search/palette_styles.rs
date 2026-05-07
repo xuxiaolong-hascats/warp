@@ -22,6 +22,10 @@ const COMMAND_PALETTE_BASE_ROW_HEIGHT: f32 = 28.;
 
 pub const PALETTE_HEIGHT: f32 = 464.;
 pub const PALETTE_WIDTH: f32 = 640.;
+pub const FILES_PALETTE_HEIGHT: f32 = 720.;
+pub const FILES_PALETTE_WIDTH: f32 = 840.;
+pub const FILES_RESULTS_MAX_HEIGHT: f32 = 240.;
+pub const FILES_PREVIEW_MIN_HEIGHT: f32 = 360.;
 
 lazy_static::lazy_static! {
     pub static ref DROP_SHADOW: DropShadow = DropShadow::default();

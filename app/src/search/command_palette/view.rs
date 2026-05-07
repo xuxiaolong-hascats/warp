@@ -1,4 +1,8 @@
 use crate::appearance::Appearance;
+#[cfg(feature = "local_fs")]
+use crate::code::editor_management::CodeSource;
+#[cfg(feature = "local_fs")]
+use crate::code::view::CodeView;
 use crate::drive::CloudObjectTypeAndId;
 use crate::search::binding_source::{BindingFilterFn, BindingSource};
 use crate::search::command_palette::mixer::CommandPaletteItemAction;
@@ -32,6 +36,7 @@ use crate::search::data_source::QueryResult;
 
 use std::collections::HashSet;
 use std::ops::Deref;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::features::FeatureFlag;
@@ -43,7 +48,7 @@ use crate::session_management::SessionSource;
 use crate::workspace::{active_terminal_in_window, ForkedConversationDestination, WorkspaceAction};
 use warpui::elements::{
     Align, Border, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
-    Container, CornerRadius, Dismiss, Empty, Fill, Flex, ParentElement, Radius, SavePosition,
+    Container, CornerRadius, Dismiss, Empty, Fill, Flex, ParentElement, Radius, Rect, SavePosition,
     Shrinkable,
 };
 use warpui::keymap::BindingId;
@@ -107,6 +112,7 @@ pub enum Event {
     OpenFile {
         path: String,
         line_and_column_arg: Option<LineAndColumnArg>,
+        force_new_tab: bool,
     },
     /// Open a directory at the given path.
     OpenDirectory { path: String },
@@ -138,6 +144,9 @@ pub struct View {
     /// Store of all the data sources that should be used for the [`SearchMixer`].
     pub data_source_store: ModelHandle<DataSourceStore>,
     zero_state_items: ModelHandle<zero_state::Items>,
+    #[cfg(feature = "local_fs")]
+    preview_code_view: Option<ViewHandle<CodeView>>,
+    previewed_path: Option<PathBuf>,
 
     /// The current navigation mode.
     navigation_mode: NavigationMode,
@@ -179,10 +188,11 @@ impl warpui::View for View {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
 
+        let is_files_mode = self.is_files_mode(app);
         let body = if self.search_bar_state.as_ref(app).should_show_zero_state() {
             ChildView::new(&self.zero_state_handle).finish()
         } else {
-            self.render_palette_list(theme, app)
+            self.render_body(theme, is_files_mode, app)
         };
 
         let mut palette = Flex::column();
@@ -197,8 +207,16 @@ impl warpui::View for View {
                 Dismiss::new(
                     Container::new(
                         ConstrainedBox::new(palette.finish())
-                            .with_width(styles::PALETTE_WIDTH)
-                            .with_max_height(styles::PALETTE_HEIGHT)
+                            .with_width(if is_files_mode {
+                                styles::FILES_PALETTE_WIDTH
+                            } else {
+                                styles::PALETTE_WIDTH
+                            })
+                            .with_max_height(if is_files_mode {
+                                styles::FILES_PALETTE_HEIGHT
+                            } else {
+                                styles::PALETTE_HEIGHT
+                            })
                             .finish(),
                     )
                     .with_background(theme.surface_2())
@@ -265,7 +283,10 @@ impl View {
             me.handle_zero_state_event(event, ctx);
         });
 
-        ctx.observe(&search_bar_state, |_, _, ctx| ctx.notify());
+        ctx.observe(&search_bar_state, |me, _, ctx| {
+            me.update_preview_for_selection(ctx);
+            ctx.notify();
+        });
 
         // Compute the list of binding IDs that we should show the suggested actions for based. Key
         // bindings are only registered once, so we only need to do this in the constructor.
@@ -318,6 +339,9 @@ impl View {
             placeholder_query_renderer: placeholder_element,
             suggested_binding_ids,
             zero_state_items,
+            #[cfg(feature = "local_fs")]
+            preview_code_view: None,
+            previewed_path: None,
             is_shared_session_viewer: false,
         }
     }
@@ -536,6 +560,68 @@ impl View {
         .finish()
     }
 
+    fn is_files_mode(&self, app: &AppContext) -> bool {
+        matches!(
+            self.search_bar_state
+                .as_ref(app)
+                .active_visible_query_filter(),
+            Some(QueryFilter::Files)
+        )
+    }
+
+    fn selected_file_path(&self, app: &AppContext) -> Option<PathBuf> {
+        let result = self.search_bar_state.as_ref(app).selected_result()?;
+        match result.accept_result() {
+            CommandPaletteItemAction::OpenFile {
+                path,
+                project_directory,
+                ..
+            } => Some(Path::new(&project_directory).join(path)),
+            _ => None,
+        }
+    }
+
+    fn update_preview_for_selection(&mut self, ctx: &mut ViewContext<Self>) {
+        if !self.is_files_mode(ctx) {
+            #[cfg(feature = "local_fs")]
+            {
+                self.preview_code_view = None;
+            }
+            self.previewed_path = None;
+            ctx.notify();
+            return;
+        }
+
+        let Some(path) = self.selected_file_path(ctx) else {
+            #[cfg(feature = "local_fs")]
+            {
+                self.preview_code_view = None;
+            }
+            self.previewed_path = None;
+            ctx.notify();
+            return;
+        };
+
+        if self.previewed_path.as_ref() == Some(&path) {
+            return;
+        }
+
+        #[cfg(feature = "local_fs")]
+        {
+            let preview_source = CodeSource::Link {
+                path: path.clone(),
+                range_start: None,
+                range_end: None,
+            };
+            let preview_code_view =
+                ctx.add_typed_action_view(move |ctx| CodeView::new_preview(preview_source, ctx));
+
+            self.preview_code_view = Some(preview_code_view);
+        }
+        self.previewed_path = Some(path);
+        ctx.notify();
+    }
+
     /// Handles events emitted by the search bar.
     fn handle_search_bar_event(
         &mut self,
@@ -552,6 +638,7 @@ impl View {
             }
             SearchBarEvent::ResultSelected { index } => {
                 self.scroll_selected_index_into_view(*index, ctx);
+                self.update_preview_for_selection(ctx);
                 ctx.notify();
             }
             // The QueryFilterChanged event is deferred (fires after the current
@@ -647,6 +734,11 @@ impl View {
 
     pub fn reset(&mut self, ctx: &mut ViewContext<Self>) {
         self.state.clipped_scroll_state.scroll_to(Pixels::zero());
+        #[cfg(feature = "local_fs")]
+        {
+            self.preview_code_view = None;
+        }
+        self.previewed_path = None;
         self.search_bar.update(ctx, |search_bar, ctx| {
             search_bar.reset(
                 None, /* initial_query */
@@ -731,6 +823,78 @@ impl View {
                 .finish()
             }
         }
+    }
+
+    fn render_body(
+        &self,
+        theme: &WarpTheme,
+        is_files_mode: bool,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        if !is_files_mode {
+            return self.render_palette_list(theme, app);
+        }
+
+        let appearance = Appearance::as_ref(app);
+
+        Flex::column()
+            .with_child(
+                ConstrainedBox::new(self.render_palette_list(theme, app))
+                    .with_max_height(styles::FILES_RESULTS_MAX_HEIGHT)
+                    .finish(),
+            )
+            .with_child(
+                Container::new(
+                    ConstrainedBox::new(
+                        Rect::new()
+                            .with_background(appearance.theme().outline())
+                            .finish(),
+                    )
+                    .with_height(1.)
+                    .finish(),
+                )
+                .with_margin_top(8.)
+                .finish(),
+            )
+            .with_child(
+                ConstrainedBox::new(
+                    Container::new(self.render_file_preview(app))
+                        .with_padding_top(8.)
+                        .finish(),
+                )
+                .with_height(styles::FILES_PREVIEW_MIN_HEIGHT)
+                .finish(),
+            )
+            .finish()
+    }
+
+    fn render_file_preview(&self, app: &AppContext) -> Box<dyn Element> {
+        #[cfg(feature = "local_fs")]
+        if self.selected_file_path(app).is_some() {
+            if let Some(preview_code_view) = &self.preview_code_view {
+                return ChildView::new(preview_code_view).finish();
+            }
+        }
+
+        let appearance = Appearance::as_ref(app);
+        let theme = appearance.theme();
+        ConstrainedBox::new(
+            Container::new(
+                Align::new(
+                    warpui::elements::Text::new(
+                        "Select a file to preview",
+                        appearance.ui_font_family(),
+                        appearance.monospace_font_size(),
+                    )
+                    .with_color(theme.sub_text_color(theme.background()).into_solid())
+                    .finish(),
+                )
+                .finish(),
+            )
+            .finish(),
+        )
+        .with_height(styles::FILES_PREVIEW_MIN_HEIGHT)
+        .finish()
     }
 
     /// Handles the `CommandPaletteItemAction` action and closes the search panel.
@@ -897,6 +1061,7 @@ impl View {
                 project_directory,
                 line_and_column_arg,
             } => {
+                let force_new_tab = self.is_files_mode(ctx);
                 let absolute_path = std::path::Path::new(&project_directory)
                     .join(&path)
                     .to_string_lossy()
@@ -905,6 +1070,7 @@ impl View {
                 ctx.emit(Event::OpenFile {
                     path: absolute_path,
                     line_and_column_arg,
+                    force_new_tab,
                 });
             }
             CommandPaletteItemAction::OpenDirectory {
@@ -936,6 +1102,7 @@ impl View {
                 ctx.emit(Event::OpenFile {
                     path: file_path.to_string_lossy().to_string(),
                     line_and_column_arg: None,
+                    force_new_tab: self.is_files_mode(ctx),
                 });
             }
             CommandPaletteItemAction::NewConversationInProject {

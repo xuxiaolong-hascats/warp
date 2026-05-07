@@ -12452,6 +12452,7 @@ impl Workspace {
             CommandPaletteEvent::OpenFile {
                 path,
                 line_and_column_arg,
+                force_new_tab,
             } => {
                 #[cfg(feature = "local_fs")]
                 self.open_code(
@@ -12460,7 +12461,11 @@ impl Workspace {
                         range_start: None,
                         range_end: None,
                     },
-                    *EditorSettings::as_ref(ctx).open_file_layout.value(),
+                    if *force_new_tab {
+                        EditorLayout::NewTab
+                    } else {
+                        *EditorSettings::as_ref(ctx).open_file_layout.value()
+                    },
                     *line_and_column_arg,
                     false, // preview
                     &[],

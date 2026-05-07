@@ -351,7 +351,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         }
         CustomAction::NavigationPalette => mac_only_keystroke("cmd-shift-P"),
         CustomAction::LaunchConfigPalette => mac_only_keystroke("ctrl-cmd-l"),
-        CustomAction::FilesPalette => Keystroke::parse(cmd_or_ctrl_shift("o")).ok(),
+        CustomAction::FilesPalette => Keystroke::parse("cmdorctrl-shift-O").ok(),
         CustomAction::ClearBlocks => Keystroke::parse(cmd_or_ctrl_shift("k")).ok(),
         CustomAction::SelectBlockAbove => Keystroke::parse("cmdorctrl-up").ok(),
         CustomAction::SelectBlockBelow => Keystroke::parse("cmdorctrl-down").ok(),
@@ -411,13 +411,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
                 Keystroke::parse("ctrl-shift-2").ok()
             }
         }
-        CustomAction::OpenRepository => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("cmd-shift-O").ok()
-            } else {
-                Keystroke::parse("alt-shift-O").ok()
-            }
-        }
+        CustomAction::OpenRepository => None,
         CustomAction::GoToLine => Keystroke::parse("ctrl-g").ok(),
         CustomAction::ToggleGlobalSearch => {
             if OperatingSystem::get().is_mac() {

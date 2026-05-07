@@ -2237,7 +2237,7 @@ impl FileTreeView {
                 path,
                 *settings.open_code_panels_file_editor,
                 *settings.prefer_markdown_viewer,
-                *settings.open_file_layout,
+                *settings.project_explorer_open_file_layout,
                 editor_layout,
             )
         };

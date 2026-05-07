@@ -427,6 +427,7 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
 
     // File tree tests
     register_test!(test_file_tree_opens_files_in_warp);
+    register_test!(test_file_tree_click_respects_split_pane_setting);
     register_test!(test_file_tree_open_in_new_pane);
     register_test!(test_file_tree_open_in_new_tab);
     register_test!(test_file_tree_keyboard_navigation);

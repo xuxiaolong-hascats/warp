@@ -1,5 +1,6 @@
 use super::{new_builder, Builder};
 use regex::Regex;
+use settings::Setting as _;
 
 use warp::{
     integration_testing::{
@@ -8,9 +9,10 @@ use warp::{
         terminal::wait_until_bootstrapped_single_pane_for_tab,
         view_getters::{pane_group_view, workspace_view},
     },
+    util::file::external_editor::{EditorLayout, EditorSettings},
     workspace::WorkspaceAction,
 };
-use warpui::{async_assert, async_assert_eq, integration::TestStep, App};
+use warpui::{async_assert, async_assert_eq, integration::TestStep, App, SingletonEntity};
 
 use crate::util::write_all_rc_files_for_test;
 
@@ -27,6 +29,17 @@ fn open_file_tree_panel(app: &mut App) {
             workspace.id(),
             &WorkspaceAction::ToggleProjectExplorer,
         );
+    });
+}
+
+fn set_project_explorer_layout(app: &mut App, layout: EditorLayout) {
+    app.update(|ctx| {
+        EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
+            settings
+                .project_explorer_open_file_layout
+                .set_value(layout, ctx)
+                .expect("failed to set Project Explorer file layout");
+        });
     });
 }
 
@@ -67,20 +80,69 @@ pub fn test_file_tree_opens_files_in_warp() -> Builder {
             new_step_with_default_assertions("Click on test_file.txt in file tree")
                 .with_click_on_saved_position("file_tree_item:test_file.txt")
                 .add_assertion(|app, window_id| {
-                    // Verify that a new pane was opened with the file
+                    let workspace = workspace_view(app, window_id);
+                    let tab_count = workspace.read(app, |workspace, _ctx| workspace.tab_count());
+                    async_assert_eq!(tab_count, 2, "Expected 2 tabs after opening file")
+                })
+                .add_assertion(|app, window_id| {
+                    let workspace = workspace_view(app, window_id);
+                    let active_tab_index =
+                        workspace.read(app, |workspace, _ctx| workspace.active_tab_index());
+                    async_assert_eq!(
+                        active_tab_index,
+                        1,
+                        "Expected the opened file tab to be active"
+                    )
+                }),
+        )
+        .with_step(
+            new_step_with_default_assertions("Verify file opened in Warp editor").add_assertion(
+                assert_pane_title(1, 0, Regex::new(r"test_file\.txt$").unwrap()),
+            ),
+        )
+}
+
+/// Test that the Project Explorer layout setting can preserve the old split-pane click behavior.
+pub fn test_file_tree_click_respects_split_pane_setting() -> Builder {
+    new_builder()
+        .with_setup(|utils| {
+            let test_dir = utils.test_dir();
+            let dir_string = test_dir
+                .to_str()
+                .expect("Should be able to convert test dir to str");
+            write_all_rc_files_for_test(&test_dir, format!("cd {dir_string}"));
+
+            std::fs::write(test_dir.join("split_file.txt"), "Hello from split pane!")
+                .expect("Failed to create test file");
+        })
+        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
+        .with_step(
+            new_step_with_default_assertions("Use split pane for Project Explorer clicks")
+                .with_action(|app, _, _| {
+                    set_project_explorer_layout(app, EditorLayout::SplitPane);
+                }),
+        )
+        .with_step(
+            new_step_with_default_assertions("Open file tree panel")
+                .with_action(|app, _, _| open_file_tree_panel(app)),
+        )
+        .with_step(
+            new_step_with_default_assertions("Click on split_file.txt in file tree")
+                .with_click_on_saved_position("file_tree_item:split_file.txt")
+                .add_assertion(|app, window_id| {
                     let pane_group = pane_group_view(app, window_id, 0);
                     pane_group.read(app, |pane_group, _ctx| {
                         async_assert_eq!(
                             pane_group.pane_count(),
                             2,
-                            "Expected 2 panes after opening file (terminal + editor)"
+                            "Expected 2 panes after opening file with split pane setting"
                         )
                     })
                 }),
         )
         .with_step(
-            new_step_with_default_assertions("Verify file opened in Warp editor").add_assertion(
-                assert_pane_title(0, 1, Regex::new(r"test_file\.txt$").unwrap()),
+            new_step_with_default_assertions("Verify file opened in split pane").add_assertion(
+                assert_pane_title(0, 1, Regex::new(r"split_file\.txt$").unwrap()),
             ),
         )
 }
@@ -215,14 +277,13 @@ pub fn test_file_tree_keyboard_navigation() -> Builder {
             new_step_with_default_assertions("Navigate to a file and press Enter")
                 .with_keystrokes(&["down", "enter"])
                 .add_assertion(|app, window_id| {
-                    let pane_group = pane_group_view(app, window_id, 0);
-                    pane_group.read(app, |pane_group, _ctx| {
-                        async_assert_eq!(
-                            pane_group.pane_count(),
-                            2,
-                            "Expected 2 panes after opening file via keyboard"
-                        )
-                    })
+                    let workspace = workspace_view(app, window_id);
+                    let tab_count = workspace.read(app, |workspace, _ctx| workspace.tab_count());
+                    async_assert_eq!(
+                        tab_count,
+                        2,
+                        "Expected 2 tabs after opening file via keyboard"
+                    )
                 }),
         )
 }

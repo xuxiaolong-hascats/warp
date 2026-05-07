@@ -1,5 +1,6 @@
 use super::{new_builder, Builder};
 use regex::Regex;
+use settings::Setting as _;
 
 use warp::{
     integration_testing::{
@@ -12,9 +13,10 @@ use warp::{
         terminal::wait_until_bootstrapped_single_pane_for_tab,
         view_getters::{pane_group_view, workspace_view},
     },
+    util::file::external_editor::{EditorLayout, EditorSettings},
     workspace::WorkspaceAction,
 };
-use warpui::{async_assert_eq, App};
+use warpui::{async_assert_eq, App, SingletonEntity};
 
 use crate::util::write_all_rc_files_for_test;
 
@@ -31,6 +33,17 @@ fn open_file_tree_panel(app: &mut App) {
             workspace.id(),
             &WorkspaceAction::ToggleProjectExplorer,
         );
+    });
+}
+
+fn use_split_pane_for_project_explorer(app: &mut App) {
+    app.update(|ctx| {
+        EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
+            settings
+                .project_explorer_open_file_layout
+                .set_value(EditorLayout::SplitPane, ctx)
+                .expect("failed to set Project Explorer file layout");
+        });
     });
 }
 
@@ -57,6 +70,10 @@ fn file_open_steps(builder: Builder) -> Builder {
             .expect("Failed to create test file");
         })
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
+        .with_step(
+            new_step_with_default_assertions("Use split pane for Project Explorer clicks")
+                .with_action(|app, _, _| use_split_pane_for_project_explorer(app)),
+        )
         .with_step(
             new_step_with_default_assertions("Open file tree panel")
                 .with_action(|app, _, _| open_file_tree_panel(app)),

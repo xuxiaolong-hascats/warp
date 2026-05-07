@@ -97,6 +97,15 @@ define_settings_group!(EditorSettings, settings: [
         toml_path: "code.editor.open_file_layout",
         description: "The layout used when opening files in the editor.",
     },
+    project_explorer_open_file_layout: ProjectExplorerOpenFileLayout {
+        type: EditorLayout,
+        default: EditorLayout::NewTab,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "code.editor.project_explorer_open_file_layout",
+        description: "The layout used when opening files from the project explorer.",
+    },
     prefer_markdown_viewer: PreferMarkdownViewer {
         type: bool,
         default: true,

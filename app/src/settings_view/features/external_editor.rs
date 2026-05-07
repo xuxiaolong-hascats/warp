@@ -18,7 +18,7 @@ use crate::{
     util::file::external_editor::{
         settings::{
             EditorChoice, EditorLayout, OpenCodePanelsFileEditor, OpenFileEditor, OpenFileLayout,
-            PreferMarkdownViewer, PreferTabbedEditorView,
+            PreferMarkdownViewer, PreferTabbedEditorView, ProjectExplorerOpenFileLayout,
         },
         EditorSettings, SUPPORTED_EDITORS,
     },
@@ -33,6 +33,7 @@ pub enum ExternalEditorAction {
     SetEditor(EditorChoice),
     SetCodePanelsEditor(EditorChoice),
     SetLayout(EditorLayout),
+    SetProjectExplorerLayout(EditorLayout),
     TogglePreferMarkdownViewer,
     ToggleTabbedEditorView,
     OpenUrl(String),
@@ -42,6 +43,7 @@ pub struct ExternalEditorView {
     editor_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     code_panels_editor_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     layout_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
+    project_explorer_layout_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     tabbed_editor_view_mouse_state: SwitchStateHandle,
     prefer_markdown_viewer_switch: SwitchStateHandle,
     markdown_viewer_mouse_state: MouseStateHandle,
@@ -54,6 +56,8 @@ impl ExternalEditorView {
         let editor_to_open_files = *settings.as_ref(ctx).open_file_editor;
         let code_panels_editor_to_open_files = *settings.as_ref(ctx).open_code_panels_file_editor;
         let layout_to_open_files = *settings.as_ref(ctx).open_file_layout;
+        let project_explorer_layout_to_open_files =
+            *settings.as_ref(ctx).project_explorer_open_file_layout;
 
         let editor_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
@@ -77,7 +81,22 @@ impl ExternalEditorView {
         });
         let layout_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
-            Self::init_layout_dropdown(&layout_to_open_files, &mut dropdown, ctx);
+            Self::init_layout_dropdown(
+                &layout_to_open_files,
+                &mut dropdown,
+                ExternalEditorAction::SetLayout,
+                ctx,
+            );
+            dropdown
+        });
+        let project_explorer_layout_dropdown = ctx.add_typed_action_view(|ctx| {
+            let mut dropdown = Dropdown::new(ctx);
+            Self::init_layout_dropdown(
+                &project_explorer_layout_to_open_files,
+                &mut dropdown,
+                ExternalEditorAction::SetProjectExplorerLayout,
+                ctx,
+            );
             dropdown
         });
         ctx.subscribe_to_model(
@@ -101,6 +120,27 @@ impl ExternalEditorView {
                         ctx,
                     );
                 });
+                me.layout_dropdown.update(ctx, |dropdown, ctx| {
+                    let layout = *editor_settings.as_ref(ctx).open_file_layout;
+                    Self::init_layout_dropdown(
+                        &layout,
+                        dropdown,
+                        ExternalEditorAction::SetLayout,
+                        ctx,
+                    );
+                });
+                me.project_explorer_layout_dropdown
+                    .update(ctx, |dropdown, ctx| {
+                        let layout = *editor_settings
+                            .as_ref(ctx)
+                            .project_explorer_open_file_layout;
+                        Self::init_layout_dropdown(
+                            &layout,
+                            dropdown,
+                            ExternalEditorAction::SetProjectExplorerLayout,
+                            ctx,
+                        );
+                    });
                 ctx.notify()
             },
         );
@@ -109,6 +149,7 @@ impl ExternalEditorView {
             editor_dropdown,
             code_panels_editor_dropdown,
             layout_dropdown,
+            project_explorer_layout_dropdown,
             tabbed_editor_view_mouse_state: Default::default(),
             prefer_markdown_viewer_switch: Default::default(),
             markdown_viewer_mouse_state: Default::default(),
@@ -119,18 +160,17 @@ impl ExternalEditorView {
     fn init_layout_dropdown(
         layout_to_open_files: &EditorLayout,
         dropdown: &mut Dropdown<ExternalEditorAction>,
+        make_action: impl Fn(EditorLayout) -> ExternalEditorAction,
         ctx: &mut ViewContext<Dropdown<ExternalEditorAction>>,
     ) {
         let default_option_text = "Split Pane";
-        let default_app = DropdownItem::new(
-            default_option_text,
-            ExternalEditorAction::SetLayout(EditorLayout::SplitPane),
-        );
+        let default_app =
+            DropdownItem::new(default_option_text, make_action(EditorLayout::SplitPane));
 
         let mut items = vec![default_app];
         items.push(DropdownItem::new(
             "New Tab",
-            ExternalEditorAction::SetLayout(EditorLayout::NewTab),
+            make_action(EditorLayout::NewTab),
         ));
 
         dropdown.set_items(items, ctx);
@@ -222,6 +262,22 @@ impl ExternalEditorView {
         send_telemetry_from_ctx!(
             TelemetryEvent::FeaturesPageAction {
                 action: "SetLayout".to_string(),
+                value: format!("{layout:?}")
+            },
+            ctx
+        );
+    }
+
+    fn set_project_explorer_layout(&mut self, layout: &EditorLayout, ctx: &mut ViewContext<Self>) {
+        EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
+            report_if_error!(settings
+                .project_explorer_open_file_layout
+                .set_value(*layout, ctx));
+        });
+
+        send_telemetry_from_ctx!(
+            TelemetryEvent::FeaturesPageAction {
+                action: "SetProjectExplorerLayout".to_string(),
                 value: format!("{layout:?}")
             },
             ctx
@@ -323,10 +379,26 @@ impl View for ExternalEditorView {
             &self.layout_dropdown,
         );
 
+        let project_explorer_layout = render_dropdown_item(
+            appearance,
+            "Choose a layout when opening files from Project Explorer",
+            None,
+            None,
+            LocalOnlyIconState::for_setting(
+                ProjectExplorerOpenFileLayout::storage_key(),
+                ProjectExplorerOpenFileLayout::sync_to_cloud(),
+                &mut self.local_only_icon_states.borrow_mut(),
+                app,
+            ),
+            None,
+            &self.project_explorer_layout_dropdown,
+        );
+
         let mut column = Flex::column()
             .with_child(default_editor)
             .with_child(code_panels_editor)
-            .with_child(default_layout);
+            .with_child(default_layout)
+            .with_child(project_explorer_layout);
 
         if FeatureFlag::TabbedEditorView.is_enabled() {
             column.add_child(render_body_item::<ExternalEditorAction>(
@@ -401,6 +473,9 @@ impl TypedActionView for ExternalEditorView {
                 self.set_code_panels_editor(editor, ctx)
             }
             ExternalEditorAction::SetLayout(layout) => self.set_layout(layout, ctx),
+            ExternalEditorAction::SetProjectExplorerLayout(layout) => {
+                self.set_project_explorer_layout(layout, ctx)
+            }
             ExternalEditorAction::TogglePreferMarkdownViewer => {
                 self.toggle_prefer_markdown_viewer(ctx)
             }

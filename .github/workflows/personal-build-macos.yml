@@ -6,9 +6,10 @@ on:
       channel:
         description: Release channel to bundle
         required: true
-        default: oss
+        default: stable
         type: choice
         options:
+          - stable
           - oss
           - dev
           - local

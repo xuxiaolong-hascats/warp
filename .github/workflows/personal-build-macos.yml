@@ -25,9 +25,19 @@ on:
         options:
           - selfsign
           - nosign
+      create_release:
+        description: Create a GitHub Release in the personal fork
+        required: true
+        default: true
+        type: boolean
+      release_tag:
+        description: Optional release tag. Leave empty to auto-generate one.
+        required: false
+        default: ""
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: personal-build-macos-${{ github.ref }}
@@ -78,3 +88,35 @@ jobs:
           name: personal-macos-dmg-${{ inputs.channel }}-${{ github.ref_name }}
           path: ${{ steps.bundle.outputs.dmg_path }}
           retention-days: 14
+
+      - name: Compute personal release metadata
+        id: release_meta
+        if: ${{ inputs.create_release }}
+        shell: bash
+        run: |
+          if [[ -n "${{ inputs.release_tag }}" ]]; then
+            tag="${{ inputs.release_tag }}"
+          else
+            timestamp="$(date -u +'%Y%m%d-%H%M%S')"
+            tag="personal-${{ inputs.channel }}-${timestamp}-run${GITHUB_RUN_NUMBER}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=Personal macOS build $tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create personal GitHub Release
+        if: ${{ inputs.create_release }}
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: ${{ steps.release_meta.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Personal Warp build from `${{ github.ref_name }}`.
+
+            - Channel: `${{ inputs.channel }}`
+            - Debug build: `${{ inputs.debug_build }}`
+            - Signing mode: `${{ inputs.signing_mode }}`
+            - Commit: `${{ github.sha }}`
+          files: ${{ steps.bundle.outputs.dmg_path }}

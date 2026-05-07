@@ -13,7 +13,7 @@ on:
       target_branch:
         description: Fork branch to overwrite with upstream
         required: false
-        default: master
+        default: upstream-master
         type: string
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
     env:
       UPSTREAM_REPO: warpdotdev/warp
       UPSTREAM_BRANCH: ${{ github.event.inputs.upstream_branch || 'master' }}
-      TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'master' }}
+      TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'upstream-master' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

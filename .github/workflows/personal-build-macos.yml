@@ -6,11 +6,11 @@ on:
       channel:
         description: Release channel to bundle
         required: true
-        default: stable
+        default: oss
         type: choice
         options:
-          - stable
           - oss
+          - stable
           - dev
           - local
       debug_build:
